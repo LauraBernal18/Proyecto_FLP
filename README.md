@@ -5,13 +5,13 @@ Proyecto final del curso **Fundamentos de Interpretación y Compilación de Leng
 
 LogicFusion es un lenguaje que combina los paradigmas funcional e imperativo, con soporte para
 instancias del problema de satisfacibilidad booleana (SAT) en forma normal conjuntiva (FNC).
-El intérprete está escrito en Racket (`#lang eopl`) con SLLGEN, usando solo las librerías EOPL y Stream.
+El intérprete está escrito en Racket (`#lang eopl`) con SLLGEN
 
 ## Integrantes
 
 | Integrante | Responsabilidad |
 |---|---|
-| (nombre 1) | Base: léxico, gramática, ambientes con tipos, variables, procedimientos, BLOCK, LOCALS |
+| Laura Bernal | Base: léxico, gramática, ambientes con tipos, variables, procedimientos, BLOCK, LOCALS |
 | (nombre 2) | Control (if, switch, while, for), cadenas y diccionarios |
 | (nombre 3) | Listas y vectores |
 | (nombre 4) | Instancias SAT (`solve`), pruebas integradas y documentación |
