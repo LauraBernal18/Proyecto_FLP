@@ -1,1 +1,138 @@
 #lang eopl
+ 
+;******************************************************************************************
+;;Interpretador para LogicFusion: lenguaje funcional e imperativo con soporte
+;;para lógica booleana (instancias SAT en forma normal conjuntiva)
+ 
+;; La definición BNF para las expresiones del lenguaje:
+;;
+;;  <program>       ::= GLOBALS { {<declaration>}* } PROGRAM { proc main ( ) <body> }
+;;                      <a-program (decls body)>
+
+;;  <body>          ::= { <expression> ; {<expression> ;}* }
+;;                      <a-body (exp exps)>
+
+;;  <declaration>   ::= <type-exp> <identifier> = <expression> ;
+;;                      <var-decl (texp id exp)>
+
+;;                  ::= const <type-exp> <identifier> = <expression> ;
+;;                      <const-decl (texp id exp)>
+
+;;  <expression>    ::= <number>
+;;                      <lit-exp (datum)>
+
+;;                  ::= <string>
+;;                      <text-exp (txt)>
+;;                  ::= True                              <true-exp ()>
+;;                  ::= False                             <false-exp ()>
+
+;;                  ::= <identifier> {<ident-tail>}*
+;;                      <ident-exp (id tails)>
+;;                      (sin tails es una variable; con tails es una llamada a procedimiento)
+
+;;                  ::= <primitive> ({<expression>}*(,))
+;;                      <primapp-exp (prim rands)>
+
+;;                  ::= ( <expression> <bin-primitive> <expression> )
+;;                       <bin-primapp-exp (rand1 prim rand2)>
+
+;;                  ::= <identifier> -> <expression>
+;;                      <set-exp (id rhs)>
+
+;;                  ::= if <expression> <body> else <body>
+;;                      <if-exp (test true-body false-body)>
+
+;;                  ::= switch <expression> { {case <expression> : <body>}* default : <body> }
+;;                      <switch-exp (exp vals bodies default)>
+
+;;                  ::= while <expression> <body>
+;;                      <while-exp (test body)>
+
+;;                  ::= for ( <expression> ; <expression> ; <expression> ) <body>
+;;                      <for-exp (init test update body)>
+
+;;                  ::= BLOCK <body>
+;;                      <block-exp (body)>
+
+;;                  ::= LOCALS { {<declaration>}* } <body>
+;;                      <locals-exp (decls body)>
+
+;;                  ::= return <expression>
+;;                      <return-exp (exp)>
+
+;;                  ::= lambda ({<type-exp> <identifier>}*(,)) <body>
+;;                      <proc-exp (arg-texps ids body)>
+
+;;                  ::= list ( {<expression>}*(,) )
+;;                      <list-exp (exps)>
+
+;;                  ::= empty                             <empty-list-exp ()>
+
+;;                  ::= [ {<expression>}*(,) ]
+;;                      <vector-exp (exps)>
+
+;;                  ::= { {<expression> : <expression>}*(,) }
+;;                      <dict-exp (keys vals)>
+
+;;                  ::= FNC <number> ( <sat-clause> {and <sat-clause>}* )
+;;                      <sat-exp (nvars clause clauses)>
+
+;;  <ident-tail>    ::= ( {<expression>}*(,) )
+;;                      <call-tail (rands)>
+
+;;  <sat-clause>    ::= ( <number> {or <number>}* )
+;;                      <a-sat-clause (lit lits)>
+
+;;  <type-exp>      ::= int | float | string | bool | void | sat | proc
+;;                  ::= list < <type-exp> > | vector < <type-exp> >
+;;                  ::= dict < <type-exp> , <type-exp> >
+
+;;  <bin-primitive> ::= + | - | * | / | == | != | > | < | >= | <=
+
+;;  <primitive>     ::= print | longitud | concatenar | solve
+;;                  ::= empty? | make-list | list? | head | tail | append | ref-list | length
+;;                  ::= vector? | make-vector | ref-vector | set-vector | append-vector | delete-val-vector | insert-val-vector
+;;                  ::= create-dict | dict? | ref-dict | set-dict | append-dict | keys-dict | values-dict
+ 
+;******************************************************************************************************************************
+;******************************************************************************************
+;Especificación Léxica
+ 
+(define scanner-spec-logicfusion
+'((white-sp (whitespace) skip)
+  (comment ("%" (arbno (not #\newline))) skip)
+  (identifier (letter (arbno (or letter digit "?" "_"))) symbol)
+  (string ("\"" (arbno (not #\")) "\"") string)
+  (number (digit (arbno digit)) number)
+  (number ("-" digit (arbno digit)) number)
+  (number (digit (arbno digit) "." digit (arbno digit)) number)
+  (number ("-" digit (arbno digit) "." digit (arbno digit)) number)))
+ 
+;Especificación Sintáctica (gramática)
+ 
+(define grammar-logicfusion
+  '((program ("GLOBALS" "{" (arbno declaration) "}"
+              "PROGRAM" "{" "proc" "main" "(" ")" body "}") a-program)
+ 
+    ; cuerpo: una o más expresiones, cada una terminada en ";"
+    (body ("{" expression ";" (arbno expression ";") "}") a-body)
+ 
+    ; declaraciones (variables y constantes)
+    (declaration (type-exp identifier "=" expression ";") var-decl)
+    (declaration ("const" type-exp identifier "=" expression ";") const-decl)
+ 
+    ; expresiones básicas
+    (expression (number) lit-exp)
+    (expression (string) text-exp)
+    (expression ("True") true-exp)
+    (expression ("False") false-exp)
+    (expression (identifier (arbno ident-tail)) ident-exp)
+    (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
+    (expression ("(" expression bin-primitive expression ")") bin-primapp-exp)
+ 
+    ; procedimientos
+    (expression ("lambda" "(" (separated-list type-exp identifier ",") ")" body) proc-exp)
+    (ident-tail ("(" (separated-list expression ",") ")") call-tail)
+    (expression ("return" expression) return-exp)
+
+    ))
