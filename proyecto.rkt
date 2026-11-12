@@ -264,6 +264,15 @@
   (lambda (pgm) pgm))
  
 ;*******************************************************************************************
+;Procedimientos
+; (igual a procval de clase, pero guarda también los tipos de los parámetros
+;  para poder validar luego las asignaciones a esos parámetros)
+(define-datatype procval procval?
+  (closure
+   (ids (list-of symbol?))
+   (texps (list-of type-exp?))
+   (cuerpo body?)
+   (env environment?)))
 
 ;*******************************************************************************************
 ;Procedimientos
@@ -314,5 +323,115 @@
       (a-dict (state) (vector-ref state 2)))))
  
 ;*******************************************************************************************
+;Validación de tipos
+; (solo se usa al crear una variable y al modificarla)
+ 
+;type-matches?: <type-exp> <valor> -> boolean
+;función que determina si un valor corresponde a un tipo declarado
+(define type-matches?
+  (lambda (texp val)
+    (cases type-exp texp
+      (int-type-exp () (and (integer? val) (exact? val)))
+      (float-type-exp () (and (real? val) (inexact? val)))
+      (string-type-exp () (string? val))
+      (bool-type-exp () (boolean? val))
+      (void-type-exp () #t)
+      (sat-type-exp () (sat-val? val))
+      (proc-type-exp () (procval? val))
+      (list-type-exp (elem-texp)
+                     (and (list? val)
+                          (all-match? elem-texp val)))
+      (vector-type-exp (elem-texp)
+                       (and (vector-val? val)
+                            (all-match? elem-texp (vector-val-elements val))))
+      (dict-type-exp (key-texp val-texp)
+                     (and (dict-val? val)
+                          (all-pairs-match? key-texp val-texp (dict-val-pairs val)))))))
+ 
+;all-match?: <type-exp> <list> -> boolean
+(define all-match?
+  (lambda (texp lst)
+    (cond
+      ((null? lst) #t)
+      ((type-matches? texp (car lst)) (all-match? texp (cdr lst)))
+      (else #f))))
+ 
+;all-pairs-match?: <type-exp> <type-exp> <list-of pares> -> boolean
+(define all-pairs-match?
+  (lambda (key-texp val-texp pairs)
+    (cond
+      ((null? pairs) #t)
+      ((and (type-matches? key-texp (car (car pairs)))
+            (type-matches? val-texp (cdr (car pairs))))
+       (all-pairs-match? key-texp val-texp (cdr pairs)))
+      (else #f))))
+ 
+;type->string: <type-exp> -> string
+;función que escribe un tipo para los mensajes de error
+(define type->string
+  (lambda (texp)
+    (cases type-exp texp
+      (int-type-exp () "int")
+      (float-type-exp () "float")
+      (string-type-exp () "string")
+      (bool-type-exp () "bool")
+      (void-type-exp () "void")
+      (sat-type-exp () "sat")
+      (proc-type-exp () "proc")
+      (list-type-exp (elem-texp)
+                     (string-append "list<" (type->string elem-texp) ">"))
+      (vector-type-exp (elem-texp)
+                       (string-append "vector<" (type->string elem-texp) ">"))
+      (dict-type-exp (key-texp val-texp)
+                     (string-append "dict<" (type->string key-texp) ","
+                                    (type->string val-texp) ">")))))
 
 
+;check-declaration: <symbol> <type-exp> <valor> -> #t o error
+;validación al momento de crear una variable o constante
+(define check-declaration
+  (lambda (id texp val)
+    (if (type-matches? texp val)
+        #t
+        (eopl:error 'check-declaration
+                    "El valor ~s no corresponde al tipo ~s de la variable ~s"
+                    val (type->string texp) id))))
+
+
+;check-assignment: <symbol> <var-type> <valor> -> #t o error
+;validación al momento de modificar una variable:
+; las constantes no se pueden modificar y el valor nuevo debe tener el tipo declarado
+(define check-assignment
+  (lambda (id info val)
+    (cases var-type info
+      (a-var-type (texp const?)
+                  (cond
+                    (const? (eopl:error 'check-assignment
+                                        "No se puede modificar la constante ~s" id))
+                    ((not (type-matches? texp val))
+                     (eopl:error 'check-assignment
+                                 "El valor ~s no corresponde al tipo ~s de la variable ~s"
+                                 val (type->string texp) id))
+                    (else #t))))))
+ 
+;*******************************************************************************************
+
+;Ambientes
+ 
+;información de tipo que se guarda en el ambiente junto a cada variable:
+; el tipo declarado y si es constante
+(define-datatype var-type var-type?
+  (a-var-type (texp type-exp?)
+              (const? boolean?)))
+ 
+;definición del tipo de dato ambiente
+; (igual al de clase, con un vector adicional "types" paralelo a "vec")
+(define-datatype environment environment?
+  (empty-env-record)
+  (extended-env-record
+   (syms (list-of symbol?))
+   (vec vector?)
+   (types vector?)
+   (env environment?)))
+ 
+(define scheme-value? (lambda (v) #t))
