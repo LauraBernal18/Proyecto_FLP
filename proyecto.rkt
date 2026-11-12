@@ -114,14 +114,14 @@
   '((program ("GLOBALS" "{" (arbno declaration) "}"
               "PROGRAM" "{" "proc" "main" "(" ")" body "}") a-program)
  
-    ; cuerpo: una o más expresiones, cada una terminada en ";"
+  ; cuerpo: una o más expresiones, cada una terminada en ";"
     (body ("{" expression ";" (arbno expression ";") "}") a-body)
  
-    ; declaraciones (variables y constantes)
+  ; declaraciones (variables y constantes)
     (declaration (type-exp identifier "=" expression ";") var-decl)
     (declaration ("const" type-exp identifier "=" expression ";") const-decl)
  
-    ; expresiones básicas
+  ; expresiones básicas
     (expression (number) lit-exp)
     (expression (string) text-exp)
     (expression ("True") true-exp)
@@ -130,9 +130,94 @@
     (expression (primitive "(" (separated-list expression ",") ")") primapp-exp)
     (expression ("(" expression bin-primitive expression ")") bin-primapp-exp)
  
-    ; procedimientos
+  ; procedimientos
     (expression ("lambda" "(" (separated-list type-exp identifier ",") ")" body) proc-exp)
     (ident-tail ("(" (separated-list expression ",") ")") call-tail)
     (expression ("return" expression) return-exp)
 
-    ))
+  ; asignación
+    (expression ("set" identifier "->" expression) set-exp)
+ 
+  ; secuenciación
+    (expression ("BLOCK" body) block-exp)
+    (expression ("LOCALS" "{" (arbno declaration) "}" body) locals-exp)
+ 
+  ; estructuras de control
+    (expression ("if" expression body "else" body) if-exp)
+    (expression ("switch" expression "{" (arbno "case" expression ":" body) "default" ":" body "}") switch-exp)
+    (expression ("while" expression body) while-exp)
+    (expression ("for" "(" expression ";" expression ";" expression ")" body) for-exp)
+ 
+  ; estructuras de datos
+    (expression ("list" "(" (separated-list expression ",") ")") list-exp)
+    (expression ("empty") empty-list-exp)
+    (expression ("[" (separated-list expression ",") "]") vector-exp)
+    (expression ("{" (separated-list expression ":" expression ",") "}") dict-exp)
+ 
+  ; instancias SAT
+    (expression ("FNC" number "(" sat-clause (arbno "and" sat-clause) ")") sat-exp)
+    (sat-clause ("(" number (arbno "or" number) ")") a-sat-clause)
+ 
+  ; tipos de datos primitivos
+    (type-exp ("int") int-type-exp)
+    (type-exp ("float") float-type-exp)
+    (type-exp ("string") string-type-exp)
+    (type-exp ("bool") bool-type-exp)
+    (type-exp ("void") void-type-exp)
+    (type-exp ("sat") sat-type-exp)
+
+  ;funciones
+    (type-exp ("proc") proc-type-exp)
+ 
+  ; tipos de datos compuestos
+    (type-exp ("list" "<" type-exp ">") list-type-exp)
+    (type-exp ("vector" "<" type-exp ">") vector-type-exp)
+    (type-exp ("dict" "<" type-exp "," type-exp ">") dict-type-exp)
+ 
+  ; primitivas binarias (infijas)
+    (bin-primitive ("+") add-prim)
+    (bin-primitive ("-") substract-prim)
+    (bin-primitive ("*") mult-prim)
+    (bin-primitive ("/") div-prim)
+    (bin-primitive ("==") equal-prim)
+    (bin-primitive ("!=") diff-prim)
+    (bin-primitive (">") greater-prim)
+    (bin-primitive ("<") less-prim)
+    (bin-primitive (">=") greater-eq-prim)
+    (bin-primitive ("<=") less-eq-prim)
+ 
+  ; primitivas generales
+    (primitive ("print") print-prim)
+    (primitive ("solve") solve-prim)
+ 
+  ; primitivas de cadenas
+    (primitive ("longitud") longitud-prim)
+    (primitive ("concatenar") concatenar-prim)
+ 
+    ; primitivas de listas
+    (primitive ("empty?") empty?-prim)
+    (primitive ("make-list") make-list-prim)
+    (primitive ("list?") list?-prim)
+    (primitive ("head") head-prim)
+    (primitive ("tail") tail-prim)
+    (primitive ("append") append-prim)
+    (primitive ("ref-list") ref-list-prim)
+    (primitive ("length") length-prim)
+ 
+    ; primitivas de vectores
+    (primitive ("vector?") vector?-prim)
+    (primitive ("make-vector") make-vector-prim)
+    (primitive ("ref-vector") ref-vector-prim)
+    (primitive ("set-vector") set-vector-prim)
+    (primitive ("append-vector") append-vector-prim)
+    (primitive ("delete-val-vector") delete-val-vector-prim)
+    (primitive ("insert-val-vector") insert-val-vector-prim)
+ 
+    ; primitivas de diccionarios
+    (primitive ("create-dict") create-dict-prim)
+    (primitive ("dict?") dict?-prim)
+    (primitive ("ref-dict") ref-dict-prim)
+    (primitive ("set-dict") set-dict-prim)
+    (primitive ("append-dict") append-dict-prim)
+    (primitive ("keys-dict") keys-dict-prim)
+    (primitive ("values-dict") values-dict-prim)))
