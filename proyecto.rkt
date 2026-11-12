@@ -36,7 +36,7 @@
 ;;                  ::= ( <expression> <bin-primitive> <expression> )
 ;;                       <bin-primapp-exp (rand1 prim rand2)>
 
-;;                  ::= <identifier> -> <expression>
+;;                  ::= set <identifier> -> <expression>
 ;;                      <set-exp (id rhs)>
 
 ;;                  ::= if <expression> <body> else <body>
@@ -107,7 +107,8 @@
   (number ("-" digit (arbno digit)) number)
   (number (digit (arbno digit) "." digit (arbno digit)) number)
   (number ("-" digit (arbno digit) "." digit (arbno digit)) number)))
- 
+
+
 ;Especificación Sintáctica (gramática)
  
 (define grammar-logicfusion
@@ -221,3 +222,97 @@
     (primitive ("append-dict") append-dict-prim)
     (primitive ("keys-dict") keys-dict-prim)
     (primitive ("values-dict") values-dict-prim)))
+
+
+;Tipos de datos para la sintaxis abstracta de la gramática
+ 
+;Construidos automáticamente:
+ 
+(sllgen:make-define-datatypes scanner-spec-logicfusion grammar-logicfusion)
+ 
+(define show-the-datatypes
+  (lambda () (sllgen:list-define-datatypes scanner-spec-logicfusion grammar-logicfusion)))
+ 
+;*******************************************************************************************
+;Parser, Scanner, Interfaz
+ 
+;El FrontEnd (Análisis léxico (scanner) y sintáctico (parser) integrados)
+ 
+(define scan&parse
+  (sllgen:make-string-parser scanner-spec-logicfusion grammar-logicfusion))
+ 
+;El Analizador Léxico (Scanner)
+ 
+(define just-scan
+  (sllgen:make-string-scanner scanner-spec-logicfusion grammar-logicfusion))
+ 
+;El Interpretador (FrontEnd + Evaluación + señal para lectura )
+ 
+(define interpretador
+  (sllgen:make-rep-loop  "--> "
+    (lambda (pgm) (eval-program  pgm))
+    (sllgen:make-stream-parser
+      scanner-spec-logicfusion
+      grammar-logicfusion)))
+ 
+;*******************************************************************************************
+;El Interprete
+ 
+;eval-program: <programa> -> valor
+; (PROVISIONAL: se reemplaza en el Paso 3; por ahora solo devuelve el árbol de sintaxis abstracta)
+(define eval-program
+  (lambda (pgm) pgm))
+ 
+;*******************************************************************************************
+
+;*******************************************************************************************
+;Procedimientos
+; (igual a procval de clase, pero guarda también los tipos de los parámetros
+;  para poder validar luego las asignaciones a esos parámetros)
+
+;*******************************************************************************************
+;Valores expresados (CONTRATO PARA TODO EL GRUPO)
+;
+;enteros y flotantes : números de Scheme (int = exacto, float = inexacto, ej. 20.0)
+;cadenas             : strings de Scheme
+;booleanos           : #t y #f  (True y False del lenguaje)
+;listas              : listas de Scheme (inmutables). empty es '()
+;procedimientos      : closure (procval)
+;vectores            : a-vector, mutable y de tamaño variable
+;diccionarios        : a-dict, mutable
+;instancias SAT      : a-sat
+ 
+;a-vector guarda un "estado" (vector de Scheme de 2 posiciones) para poder cambiar su contenido y su tamaño:
+; posición 0: tipo de los elementos (type-exp), void mientras no se declare
+; posición 1: lista de Scheme con los elementos
+(define-datatype vector-val vector-val?
+  (a-vector (state vector?)))
+ 
+; a-dict guarda un estado de 3 posiciones:
+; posición 0: tipo de las claves (type-exp)
+; posición 1: tipo de los valores (type-exp)
+; posición 2: lista de pares (clave . valor)
+(define-datatype dict-val dict-val?
+  (a-dict (state vector?)))
+ 
+; a-sat: número de variables y lista de cláusulas;
+; cada cláusula es una lista de enteros (literales), ej. (1 -2 3 4)
+(define-datatype sat-val sat-val?
+  (a-sat (nvars integer?)
+         (clauses list?)))
+ 
+; vector-val-elements: <vector-val> -> list
+(define vector-val-elements
+  (lambda (v)
+    (cases vector-val v
+      (a-vector (state) (vector-ref state 1)))))
+ 
+; dict-val-pairs: <dict-val> -> list
+(define dict-val-pairs
+  (lambda (d)
+    (cases dict-val d
+      (a-dict (state) (vector-ref state 2)))))
+ 
+;*******************************************************************************************
+
+
