@@ -261,7 +261,202 @@
 ;eval-program: <programa> -> valor
 ; (PROVISIONAL: se reemplaza en el Paso 3; por ahora solo devuelve el árbol de sintaxis abstracta)
 (define eval-program
-  (lambda (pgm) pgm))
+  (lambda (pgm)
+    (cases program pgm
+      (a-program (decls main-body)
+                 (let ((env (init-env decls)))
+                   (begin
+                     (eval-declarations! decls env)
+                     (eval-body main-body env)))))))
+
+; Ambiente inicial
+;init-env: <list-of declaration> -> environment
+; contiene TODAS las variables de GLOBALS con su tipo y bandera const, pero todavía
+; sin valor (se les da valor en eval-declarations!). Es la misma idea de
+; extend-env-recursively de clase: el ambiente existe antes de evaluar los valores,
+; de modo que los procedimientos globales puedan verse a sí mismos (recursión).
+(define init-env
+  (lambda (decls)
+    (extend-env
+     (map decl-id decls)
+     (map (lambda (decl) 'no-inicializada) decls)
+     (map decl->var-type decls)
+     (empty-env))))
+
+;decl-id: <declaration> -> symbol
+(define decl-id
+  (lambda (decl)
+    (cases declaration decl
+      (var-decl (texp id rhs-exp) id)
+      (const-decl (texp id rhs-exp) id))))
+
+;decl->var-type: <declaration> -> <var-type>
+; tipo declarado y si es constante (const) o variable
+(define decl->var-type
+  (lambda (decl)
+    (cases declaration decl
+      (var-decl (texp id rhs-exp) (a-var-type texp #f))
+      (const-decl (texp id rhs-exp) (a-var-type texp #t)))))
+
+;eval-declarations!: <list-of declaration> <environment> -> void
+; evalúa las declaraciones en orden y guarda cada valor en el ambiente
+(define eval-declarations!
+  (lambda (decls env)
+    (for-each (lambda (decl) (eval-declaration! decl env)) decls)))
+
+(define eval-declaration!
+  (lambda (decl env)
+    (cases declaration decl
+      (var-decl (texp id rhs-exp) (init-var! texp id rhs-exp env))
+      (const-decl (texp id rhs-exp) (init-var! texp id rhs-exp env)))))
+
+;init-var!: <type-exp> <symbol> <expression> <environment> -> void
+; evalúa el valor inicial, valida su tipo (validación al crear) y lo guarda
+(define init-var!
+  (lambda (texp id rhs-exp env)
+    (let ((val (eval-expression rhs-exp env)))
+      (begin
+        (check-declaration id texp val)
+        (stamp-type! texp val)
+        (setref! (apply-env-ref env id) val)))))
+
+;assign-var!: <symbol> <valor> <environment> -> void
+; modifica una variable existente (set x -> expr): valida que no sea const y que el
+; valor nuevo tenga el tipo declarado (validación al modificar) y luego lo guarda.
+; Igual que el set-exp de clase (setref! sobre apply-env-ref), con la validación antes.
+(define assign-var!
+  (lambda (id val env)
+    (let ((info (apply-env-type env id)))
+      (begin
+        (check-assignment id info val)
+        (cases var-type info
+          (a-var-type (texp const?) (stamp-type! texp val)))
+        (setref! (apply-env-ref env id) val)))))
+
+;stamp-type!: <type-exp> <valor> -> void
+; un vector o diccionario recién creado no conoce el tipo de sus elementos;
+; al declararlo con vector<T> o dict<K,V> se le anota ese tipo para validar
+; luego append-vector, set-vector, set-dict, etc.
+(define stamp-type!
+  (lambda (texp val)
+    (cases type-exp texp
+      (vector-type-exp (elem-texp)
+                       (cases vector-val val
+                         (a-vector (state) (vector-set! state 0 elem-texp))))
+      (dict-type-exp (key-texp val-texp)
+                     (cases dict-val val
+                       (a-dict (state)
+                               (begin
+                                 (vector-set! state 0 key-texp)
+                                 (vector-set! state 1 val-texp)))))
+      (else #t))))
+
+;eval-body: <body> <environment> -> valor
+; evalúa las expresiones del cuerpo en orden y retorna el valor de la última
+; (es el begin-exp de clase)
+(define eval-body
+  (lambda (bdy env)
+    (cases body bdy
+      (a-body (exp exps)
+              (let loop ((acc (eval-expression exp env))
+                         (exps exps))
+                (if (null? exps)
+                    acc
+                    (loop (eval-expression (car exps) env)
+                          (cdr exps))))))))
+
+;eval-expression: <expression> <enviroment> -> valor
+; evalua la expresión en el ambiente de entrada
+(define eval-expression
+  (lambda (exp env)
+    (cases expression exp
+      (lit-exp (datum) datum)
+      (text-exp (txt) txt)
+      (true-exp () #t)
+      (false-exp () #f)
+      (ident-exp (id tails)
+                 (if (null? tails)
+                     (apply-env env id)
+                     (eopl:error 'eval-expression
+                                 "Las llamadas a procedimientos se implementan en el Paso 5")))
+      (primapp-exp (prim rands)
+                   (let ((args (eval-rands rands env)))
+                     (apply-primitive prim args)))
+      (bin-primapp-exp (rand1 prim rand2)
+                       (let ((arg1 (eval-rand rand1 env))
+                             (arg2 (eval-rand rand2 env)))
+                         (apply-bin-primitive prim arg1 arg2)))
+      (block-exp (bdy) (eval-body bdy env))
+      (return-exp (val-exp) (eval-expression val-exp env))
+      (set-exp (id rhs-exp)
+               (begin
+                 (assign-var! id (eval-expression rhs-exp env) env)
+                 1))
+      (else (eopl:error 'eval-expression
+                        "Esta expresión aún no está implementada: ~s" exp)))))
+
+; funciones auxiliares para aplicar eval-expression a cada elemento de una
+; lista de operandos (expresiones)
+(define eval-rands
+  (lambda (rands env)
+    (map (lambda (x) (eval-rand x env)) rands)))
+
+(define eval-rand
+  (lambda (rand env)
+    (eval-expression rand env)))
+
+;apply-primitive: <primitiva> <list-of-valores> -> valor
+(define apply-primitive
+  (lambda (prim args)
+    (cases primitive prim
+      (print-prim () (begin
+                       (for-each (lambda (x) (display (show-value x))) args)
+                       (newline)
+                       1))
+      (else (eopl:error 'apply-primitive
+                        "La primitiva ~s aun no esta implementada" prim)))))
+
+;show-value: <valor> -> <valor>
+; para imprimir True y False en vez de #t y #f
+(define show-value
+  (lambda (v)
+    (cond
+      ((eqv? v #t) "True")
+      ((eqv? v #f) "False")
+      (else v))))
+
+;apply-bin-primitive: <bin-primitive> <valor> <valor> -> valor
+; operaciones aritméticas y relacionales (se asume que los operandos son correctos,
+; como dijo el profesor: no hay chequeo de tipos en estas operaciones)
+(define apply-bin-primitive
+  (lambda (prim arg1 arg2)
+    (cases bin-primitive prim
+      (add-prim () (+ arg1 arg2))
+      (substract-prim () (- arg1 arg2))
+      (mult-prim () (* arg1 arg2))
+      (div-prim () (/ arg1 arg2))
+      (equal-prim () (equal-values? arg1 arg2))
+      (diff-prim () (not (equal-values? arg1 arg2)))
+      (greater-prim () (> arg1 arg2))
+      (less-prim () (< arg1 arg2))
+      (greater-eq-prim () (>= arg1 arg2))
+      (less-eq-prim () (<= arg1 arg2)))))
+
+;equal-values?: <valor> <valor> -> boolean
+; los números se comparan por valor (=), los demás con equal?
+(define equal-values?
+  (lambda (a b)
+    (if (and (number? a) (number? b))
+        (= a b)
+        (equal? a b))))
+
+;true-value?: determina si un valor dado corresponde a un valor booleano falso o verdadero
+; (el profesor confirmó que las condiciones aceptan booleanos y números: 0 es falso)
+(define true-value?
+  (lambda (x)
+    (if (boolean? x)
+        x
+        (not (zero? x)))))
  
 ;*******************************************************************************************
 ;Procedimientos
