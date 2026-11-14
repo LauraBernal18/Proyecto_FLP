@@ -257,9 +257,6 @@
  
 ;*******************************************************************************************
 ;El Interprete
- 
-;eval-program: <programa> -> valor
-; (PROVISIONAL: se reemplaza en el Paso 3; por ahora solo devuelve el árbol de sintaxis abstracta)
 (define eval-program
   (lambda (pgm)
     (cases program pgm
@@ -468,11 +465,6 @@
    (texps (list-of type-exp?))
    (cuerpo body?)
    (env environment?)))
-
-;*******************************************************************************************
-;Procedimientos
-; (igual a procval de clase, pero guarda también los tipos de los parámetros
-;  para poder validar luego las asignaciones a esos parámetros)
 
 ;*******************************************************************************************
 ;Valores expresados (CONTRATO PARA TODO EL GRUPO)
