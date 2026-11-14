@@ -372,10 +372,7 @@
       (true-exp () #t)
       (false-exp () #f)
       (ident-exp (id tails)
-                 (if (null? tails)
-                     (apply-env env id)
-                     (eopl:error 'eval-expression
-                                 "Las llamadas a procedimientos se implementan en el Paso 5")))
+                 (eval-tails (apply-env env id) tails env))
       (primapp-exp (prim rands)
                    (let ((args (eval-rands rands env)))
                      (apply-primitive prim args)))
@@ -387,8 +384,12 @@
       (return-exp (val-exp) (eval-expression val-exp env))
       (set-exp (id rhs-exp)
                (begin
-                 (assign-var! id (eval-expression rhs-exp env) env)
-                 1))
+                 (assign-var! id (eval-expression rhs-exp env) env) 1))
+      (proc-exp (texps ids bdy) (closure ids texps bdy env))
+      (if-exp (test-exp true-bdy false-bdy)
+              (if (true-value? (eval-expression test-exp env))
+                  (eval-body true-bdy env)
+                  (eval-body false-bdy env)))
       (else (eopl:error 'eval-expression
                         "Esta expresión aún no está implementada: ~s" exp)))))
 
@@ -401,6 +402,47 @@
 (define eval-rand
   (lambda (rand env)
     (eval-expression rand env)))
+
+
+;eval-tails: <valor> <list-of ident-tail> <environment> -> valor
+; una variable sin tails es solo su valor; con tails es una llamada (o varias
+; encadenadas, f(1)(2)): se evalúan los argumentos y se aplica el procedimiento
+(define eval-tails
+  (lambda (val tails env)
+    (if (null? tails)
+        val
+        (cases ident-tail (car tails)
+          (call-tail (rands)
+                     (eval-tails (apply-call val (eval-rands rands env))
+                                 (cdr tails)
+                                 env))))))
+
+;apply-call: <valor> <list-of-valores> -> valor
+; verifica que lo que se invoca sea un procedimiento (igual que app-exp de clase)
+(define apply-call
+  (lambda (proc args)
+    (if (procval? proc)
+        (apply-procedure proc args)
+        (eopl:error 'apply-call
+                    "Se intento invocar algo que no es un procedimiento: ~s" proc))))
+
+
+;apply-procedure: evalúa el cuerpo de un procedimiento en un ambiente extendido
+; con los parámetros y sus argumentos. El paso de parámetros es por valor: cada
+; parámetro es una variable nueva con una copia del valor del argumento.
+(define apply-procedure
+  (lambda (proc args)
+    (cases procval proc
+      (closure (ids texps cuerpo env)
+               (if (= (length ids) (length args))
+                   (eval-body cuerpo
+                              (extend-env ids
+                                          args
+                                          (map (lambda (texp) (a-var-type texp #f)) texps)
+                                          env))
+                   (eopl:error 'apply-procedure
+                               "Numero incorrecto de argumentos: se esperaban ~s y se recibieron ~s"
+                               (length ids) (length args)))))))
 
 ;apply-primitive: <primitiva> <list-of-valores> -> valor
 (define apply-primitive
@@ -623,7 +665,7 @@
  
 (define scheme-value? (lambda (v) #t))
 
-;empty-env:      -> enviroment
+;empty-env: -> enviroment
 ;función que crea un ambiente vacío
 (define empty-env
   (lambda ()
@@ -716,3 +758,186 @@
                 #f))))))
  
 ;******************************************************************************************
+
+
+
+;******************************************************************************************
+;Pruebas (scan&parse): un ejemplo por cada tipo de producción
+
+; Declaraciones de variables, constantes y todos los tipos, lambda, llamada y main
+(scan&parse "GLOBALS {
+  int a = 10;
+  float pi = 3.1415;
+  string nombre = \"Robinson\";
+  bool docente? = True;
+  void sinTipo = 5;
+  list<int> nums1 = list(1, 2, 3);
+  list<float> nums2 = list(1.5, 2.3, 3.8);
+  vector<int> nums3 = [1, 2, 3];
+  vector<float> nums4 = [1.5, 2.3, 3.8];
+  const int valor = 10;
+  const float valor2 = 20.0;
+  dict<string, int> edades = {\"Juan\" : 25, \"Ana\" : 30};
+  dict<string, void> datos = {\"Nombre\" : \"Juan\", \"Edad\" : 40, \"Casado\" : True};
+  proc square = lambda (int x) { return (x * x); };
+} % End of Globals
+PROGRAM {
+  proc main() { return square(a); }
+}")
+
+; BLOCK, print y llamada a procedimiento
+(scan&parse "GLOBALS {
+  int a = 10;
+  proc square = lambda (int x) {
+    return BLOCK {
+      print(\"Funcion square\");
+      (x * x);
+    };
+  };
+}
+PROGRAM {
+  proc main() {
+    return BLOCK {
+      print(\"Bienvenidos a LogicFusion\");
+      square(a);
+    };
+  }
+}")
+
+; LOCALS, asignación (set ... ->), while y switch
+(scan&parse "GLOBALS {
+  float base = 10.5;
+  int max_num = 5;
+  proc triangle = lambda (float base, float height) {
+    return LOCALS {
+      float area = 0.0;
+      float b = base;
+      float h = height;
+    } {
+      print(\"Esta es la primera instruccion del cuerpo\");
+      set area -> ((base * height) / 2);
+      area;
+    };
+  };
+}
+PROGRAM {
+  proc main() {
+    return LOCALS {
+      int count = 1;
+      int fact = 0;
+    } {
+      while (count <= max_num) {
+        print(\"Cuenta: \", count);
+        set count -> (count + 1);
+      };
+      switch count {
+        case 1 : { \"uno\"; }
+        case 6 : { \"seis\"; }
+        default : { \"otro\"; }
+      };
+      triangle(base, 6.4);
+    };
+  }
+}")
+
+; if / else y recursión (factorial)
+(scan&parse "GLOBALS {
+  proc factorial = lambda (int n) {
+    if (n <= 1) { return 1; } else { return (n * factorial((n - 1))); };
+  };
+}
+PROGRAM {
+  proc main() { return factorial(5); }
+}")
+
+; for
+(scan&parse "GLOBALS {
+  proc factorial = lambda (int num) {
+    return LOCALS {
+      int result = 1;
+      int i = 1;
+    } {
+      for (set i -> 1; (i <= num); set i -> (i + 1)) {
+        set result -> (result * i);
+      };
+      result;
+    };
+  };
+}
+PROGRAM {
+  proc main() { return factorial(5); }
+}")
+
+; primitivas de listas, vectores, diccionarios y cadenas
+(scan&parse "GLOBALS {
+  list<int> l = make-list(1, empty);
+  vector<int> v = make-vector(3);
+  dict<string, int> d = create-dict();
+}
+PROGRAM {
+  proc main() {
+    return BLOCK {
+      head(l);
+      tail(l);
+      empty?(l);
+      append(l, l);
+      ref-list(l, 0);
+      length(l);
+      append-vector(v, 40);
+      set-vector(v, 1, 50);
+      ref-vector(v, 1);
+      delete-val-vector(v, 1);
+      insert-val-vector(v, 1, -5);
+      set-dict(d, \"edad\", 34);
+      ref-dict(d, \"edad\");
+      keys-dict(d);
+      values-dict(d);
+      longitud(\"hola\");
+      concatenar(\"ho\", \"la\");
+    };
+  }
+}")
+
+; primitivas de predicado (list?, vector?, dict?) y append-dict
+(scan&parse "GLOBALS {
+  list<int> l = list(1, 2);
+  vector<int> v = [1, 2];
+  dict<string, int> d = {\"a\" : 1};
+}
+PROGRAM {
+  proc main() {
+    return BLOCK {
+      list?(l);
+      vector?(v);
+      dict?(d);
+      append-dict(d, \"b\", 2);
+    };
+  }
+}")
+
+; instancias SAT: ejemplo 1 (satisfactible) y ejemplo 2 (insatisfactible) del enunciado
+(scan&parse "GLOBALS {
+  sat x = FNC 4 (
+    (1 or -2 or 3 or 4) and
+    (-2 or 3) and
+    (-1 or -2 or -3) and
+    (3 or 4) and
+    (2)
+  );
+}
+PROGRAM {
+  proc main() { return solve(x); }
+}")
+
+(scan&parse "GLOBALS {
+  sat x = FNC 2 (
+    (1 or 2) and
+    (-1) and
+    (-2)
+  );
+}
+PROGRAM {
+  proc main() { return solve(x); }
+}")
+
+;(interpretador)
