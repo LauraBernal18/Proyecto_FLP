@@ -473,7 +473,10 @@
       (add-prim () (+ arg1 arg2))
       (substract-prim () (- arg1 arg2))
       (mult-prim () (* arg1 arg2))
-      (div-prim () (/ arg1 arg2))
+      (div-prim () (let ((r (/ arg1 arg2)))
+                     (if (integer? r)
+                         r
+                         (exact->inexact r))))
       (equal-prim () (equal-values? arg1 arg2))
       (diff-prim () (not (equal-values? arg1 arg2)))
       (greater-prim () (> arg1 arg2))
