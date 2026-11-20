@@ -390,6 +390,12 @@
               (if (true-value? (eval-expression test-exp env))
                   (eval-body true-bdy env)
                   (eval-body false-bdy env)))
+      ; -- listas y vectores --
+
+
+      ; -- control y diccionarios
+
+
       (else (eopl:error 'eval-expression
                         "Esta expresión aún no está implementada: ~s" exp)))))
 
@@ -452,6 +458,11 @@
                        (for-each (lambda (x) (display (show-value x))) args)
                        (newline)
                        1))
+      ; -- listas y vectores
+
+
+      ; -- cadenas y diccionarios
+
       (else (eopl:error 'apply-primitive
                         "La primitiva ~s aun no esta implementada" prim)))))
 
