@@ -391,7 +391,8 @@
                   (eval-body true-bdy env)
                   (eval-body false-bdy env)))
       ; -- listas y vectores --
-
+      (list-exp (exprs) (eval-rands exprs env))
+      (empty-list-exp () '())
 
       ; -- control y diccionarios
 
@@ -459,7 +460,24 @@
                        (newline)
                        1))
       ; -- listas y vectores
-
+      (list?-prim () (list? (car args)))
+      (empty?-prim () (null? (car args)))
+      (head-prim () (let ((lst (car args)))
+                      (if (null? lst)
+                          (eopl:error 'head "No se puede sacar head de una lista vacia")
+                          (car lst))))
+      (tail-prim () (let ((lst (car args)))
+                      (if (null? lst)
+                          (eopl:error 'tail "No se puede sacar tail de una lista vacia")
+                          (cdr lst))))
+      (length-prim () (length (car args)))
+      (ref-list-prim () (let ((lst (car args))
+                              (pos (cadr args)))
+                          (if (and (>= pos 0) (< pos (length lst)))
+                              (list-ref lst pos)
+                              (eopl:error 'ref-list "La posicion ~s esta fuera de rango" pos))))
+      (make-list-prim () (cons (car args) (cadr args)))
+      (append-prim () (append (car args) (cadr args)))
 
       ; -- cadenas y diccionarios
 
