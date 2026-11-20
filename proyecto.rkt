@@ -469,7 +469,15 @@
       (tail-prim () (let ((lst (car args)))
                       (if (null? lst)
                           (eopl:error 'tail "No se puede sacar tail de una lista vacia")
-                          (cdr lst)))) 
+                          (cdr lst))))
+      (length-prim () (length (car args)))
+      (ref-list-prim () (let ((lst (car args))
+                              (pos (cadr args)))
+                          (if (and (>= pos 0) (< pos (length lst)))
+                              (list-ref lst pos)
+                              (eopl:error 'ref-list "La posicion ~s esta fuera de rango" pos))))
+      (make-list-prim () (cons (car args) (cadr args)))
+      (append-prim () (append (car args) (cadr args)))
 
       ; -- cadenas y diccionarios
 
