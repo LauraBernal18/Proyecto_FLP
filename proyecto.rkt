@@ -313,8 +313,8 @@
   (lambda (texp id rhs-exp env)
     (let ((val (eval-expression rhs-exp env)))
       (begin
-        (check-declaration id texp val)
         (stamp-type! texp val)
+        (check-declaration id texp val)
         (setref! (apply-env-ref env id) val)))))
 
 ;assign-var!: <symbol> <valor> <environment> -> void
@@ -529,7 +529,7 @@
       (vector?-prim () (vector-val? (car args)))
       (make-vector-prim ()
                         (let ((n (car args)))
-                          (if (and (exact-integer? n) (>= n 0))
+                          (if (and (integer? n) (exact? n) (>= n 0))
                               (a-vector
                                (vector 'void
                                        (make-list-of-length 'sin-inicializar n)))
@@ -540,7 +540,7 @@
                              (pos (cadr args)))
                          (if (vector-val? vec)
                              (let ((elements (vector-val-elements vec)))
-                               (if (and (exact-integer? pos)
+                               (if (and (integer? pos) (exact? pos)
                                         (>= pos 0)
                                         (< pos (length elements)))
                                    (list-ref elements pos)
@@ -557,7 +557,7 @@
                                (a-vector (state)
                                          (let ((elements (vector-ref state 1))
                                                (elem-texp (vector-ref state 0)))
-                                           (if (and (exact-integer? pos)
+                                           (if (and (integer? pos) (exact? pos)
                                                     (>= pos 0)
                                                     (< pos (length elements)))
                                                (if (or (eqv? elem-texp 'void)
@@ -598,7 +598,7 @@
                                     (cases vector-val vec
                                       (a-vector (state)
                                                 (let ((elements (vector-ref state 1)))
-                                                  (if (and (exact-integer? pos)
+                                                  (if (and (integer? pos) (exact? pos)
                                                            (>= pos 0)
                                                            (< pos (length elements)))
                                                       (begin
@@ -619,7 +619,7 @@
                                       (a-vector (state)
                                                 (let ((elements (vector-ref state 1))
                                                       (elem-texp (vector-ref state 0)))
-                                                  (if (and (exact-integer? pos)
+                                                  (if (and (integer? pos) (exact? pos)
                                                            (>= pos 0)
                                                            (<= pos (length elements)))
                                                       (if (or (eqv? elem-texp 'void)
@@ -636,7 +636,19 @@
                                     (eopl:error 'insert-val-vector
                                                 "El primer argumento debe ser un vector"))))
       ; -- cadenas y diccionarios
-
+      (longitud-prim ()
+                     (let ((txt (car args)))
+                       (if (string? txt)
+                           (string-length txt)
+                           (eopl:error 'longitud
+                                       "longitud requiere una cadena, recibió ~s" txt))))
+      (concatenar-prim ()
+                       (let ((txt1 (car args))
+                             (txt2 (cadr args)))
+                         (if (and (string? txt1) (string? txt2))
+                             (string-append txt1 txt2)
+                             (eopl:error 'concatenar
+                                         "concatenar requiere dos cadenas"))))
       (else (eopl:error 'apply-primitive
                         "La primitiva ~s aun no esta implementada" prim)))))
 
