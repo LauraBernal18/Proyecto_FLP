@@ -390,6 +390,16 @@
               (if (true-value? (eval-expression test-exp env))
                   (eval-body true-bdy env)
                   (eval-body false-bdy env)))
+      (locals-exp (decls bdy)
+                  (let ((env-local
+                         (extend-env
+                          (map decl-id decls)
+                          (map (lambda (decl) 'no-inicializada) decls)
+                          (map decl->var-type decls)
+                          env)))
+                    (begin
+                      (eval-declarations! decls env-local)
+                      (eval-body bdy env-local))))
       ; -- listas y vectores --
       (list-exp (exprs) (eval-rands exprs env))
       (empty-list-exp () '())
