@@ -442,6 +442,10 @@
                   (let ((elements (eval-rands exprs env)))
                     (a-vector (vector 'void elements))))
       ; -- control y diccionarios
+      (dict-exp (keys vals)
+                (a-dict (vector (void-type-exp)
+                                (void-type-exp)
+                                (map cons (eval-rands keys env) (eval-rands vals env)))))
 
 
       (else (eopl:error 'eval-expression
@@ -649,6 +653,15 @@
                              (string-append txt1 txt2)
                              (eopl:error 'concatenar
                                          "concatenar requiere dos cadenas"))))
+      (create-dict-prim () (a-dict (vector (void-type-exp) (void-type-exp) '())))
+      (dict?-prim () (dict-val? (car args)))
+      (ref-dict-prim () (let ((par (buscar-par (dict-val-pairs (car args)) (cadr args))))
+                          (if par
+                              (cdr par)
+                              (eopl:error 'ref-dict "La clave ~s no existe" (cadr args)))))
+      (keys-dict-prim () (map car (dict-val-pairs (car args))))
+      (values-dict-prim () (map cdr (dict-val-pairs (car args))))
+      
       (else (eopl:error 'apply-primitive
                         "La primitiva ~s aun no esta implementada" prim)))))
 
@@ -987,6 +1000,16 @@
         (cons val lst)
         (cons (car lst)
               (insert-list-position (cdr lst) (- pos 1) val)))))
+
+;Auxiliares para diccionarios
+
+;buscar-par: <list-of pares> <claves> -> par o #f
+(define buscar-par
+  (lambda (pares clave)
+    (cond
+      ((null? pares) #f)
+      ((equal-values? (car (car pares)) clave) (car pares))
+      (else (buscar-par (cdr pares) clave)))))
 
 
 ;******************************************************************************************
