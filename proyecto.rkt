@@ -407,6 +407,16 @@
                          (eval-body bdy env)
                          (loop))
                        1)))
+      (for-exp (init-exp test-exp update-exp bdy)
+               (begin
+                 (eval-expression init-exp env)
+                 (let loop ()
+                   (if (true-value? (eval-expression test-exp env))
+                       (begin
+                         (eval-body bdy env)
+                         (eval-expression update-exp env)
+                         (loop))
+                       1))))
       ; -- listas y vectores --
       (list-exp (exprs) (eval-rands exprs env))
       (empty-list-exp () '())
