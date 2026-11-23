@@ -313,8 +313,8 @@
   (lambda (texp id rhs-exp env)
     (let ((val (eval-expression rhs-exp env)))
       (begin
-        (check-declaration id texp val)
         (stamp-type! texp val)
+        (check-declaration id texp val)
         (setref! (apply-env-ref env id) val)))))
 
 ;assign-var!: <symbol> <valor> <environment> -> void
@@ -339,7 +339,25 @@
     (cases type-exp texp
       (vector-type-exp (elem-texp)
                        (cases vector-val val
-                         (a-vector (state) (vector-set! state 0 elem-texp))))
+                         (a-vector (state)
+                                   (let ((elements (vector-ref state 1)))
+                                     (begin
+                                       (vector-set! state 0 elem-texp)
+                                       (if (and (not (null? elements))
+                                                (eqv? (car elements) 'sin-inicializar))
+                                           (let ((default
+                                                  (cases type-exp elem-texp
+                                                    (int-type-exp () 0)
+                                                    (float-type-exp () 0.0)
+                                                    (string-type-exp () "")
+                                                    (bool-type-exp () #f)
+                                                    (void-type-exp () 'void)
+                                                    (else 'sin-inicializar))))
+                                             (vector-set!
+                                              state 1
+                                              (make-list-of-length default
+                                                                   (length elements))))
+                                           #t))))))
       (dict-type-exp (key-texp val-texp)
                      (cases dict-val val
                        (a-dict (state)
@@ -390,10 +408,39 @@
               (if (true-value? (eval-expression test-exp env))
                   (eval-body true-bdy env)
                   (eval-body false-bdy env)))
+      (locals-exp (decls bdy)
+                  (let ((env-local
+                         (extend-env
+                          (map decl-id decls)
+                          (map (lambda (decl) 'no-inicializada) decls)
+                          (map decl->var-type decls)
+                          env)))
+                    (begin
+                      (eval-declarations! decls env-local)
+                      (eval-body bdy env-local))))
+      (while-exp (test-bdy bdy)
+                 (let loop ()
+                   (if (true-value? (eval-expression test-bdy env))
+                       (begin
+                         (eval-body bdy env)
+                         (loop))
+                       1)))
+      (for-exp (init-exp test-exp update-exp bdy)
+               (begin
+                 (eval-expression init-exp env)
+                 (let loop ()
+                   (if (true-value? (eval-expression test-exp env))
+                       (begin
+                         (eval-body bdy env)
+                         (eval-expression update-exp env)
+                         (loop))
+                       1))))
       ; -- listas y vectores --
       (list-exp (exprs) (eval-rands exprs env))
       (empty-list-exp () '())
-
+      (vector-exp (exprs)
+                  (let ((elements (eval-rands exprs env)))
+                    (a-vector (vector 'void elements))))
       ; -- control y diccionarios
 
 
@@ -479,8 +526,129 @@
       (make-list-prim () (cons (car args) (cadr args)))
       (append-prim () (append (car args) (cadr args)))
 
+      (vector?-prim () (vector-val? (car args)))
+      (make-vector-prim ()
+                        (let ((n (car args)))
+                          (if (and (integer? n) (exact? n) (>= n 0))
+                              (a-vector
+                               (vector 'void
+                                       (make-list-of-length 'sin-inicializar n)))
+                              (eopl:error 'make-vector
+                                          "El tamaño debe ser un entero no negativo: ~s" n))))
+      (ref-vector-prim ()
+                       (let ((vec (car args))
+                             (pos (cadr args)))
+                         (if (vector-val? vec)
+                             (let ((elements (vector-val-elements vec)))
+                               (if (and (integer? pos) (exact? pos)
+                                        (>= pos 0)
+                                        (< pos (length elements)))
+                                   (list-ref elements pos)
+                                   (eopl:error 'ref-vector
+                                               "La posicion ~s esta fuera de rango" pos)))
+                             (eopl:error 'ref-vector
+                                         "El primer argumento debe ser un vector"))))
+      (set-vector-prim ()
+                       (let ((vec (car args))
+                             (pos (cadr args))
+                             (val (caddr args)))
+                         (if (vector-val? vec)
+                             (cases vector-val vec
+                               (a-vector (state)
+                                         (let ((elements (vector-ref state 1))
+                                               (elem-texp (vector-ref state 0)))
+                                           (if (and (integer? pos) (exact? pos)
+                                                    (>= pos 0)
+                                                    (< pos (length elements)))
+                                               (if (or (eqv? elem-texp 'void)
+                                                       (type-matches? elem-texp val))
+                                                   (begin
+                                                     (vector-set!
+                                                      state 1
+                                                      (replace-list-position elements pos val))
+                                                     val)
+                                                   (eopl:error 'set-vector
+                                                               "El valor ~s no corresponde al tipo del vector" val))
+                                               (eopl:error 'set-vector
+                                                           "La posicion ~s esta fuera de rango" pos)))))
+                             (eopl:error 'set-vector
+                                         "El primer argumento debe ser un vector"))))
+      (append-vector-prim ()
+                          (let ((vec (car args))
+                                (val (cadr args)))
+                            (if (vector-val? vec)
+                                (cases vector-val vec
+                                  (a-vector (state)
+                                            (let ((elements (vector-ref state 1))
+                                                  (elem-texp (vector-ref state 0)))
+                                              (if (or (eqv? elem-texp 'void)
+                                                      (type-matches? elem-texp val))
+                                                  (begin
+                                                    (vector-set! state 1
+                                                                 (append elements (list val)))
+                                                    vec)
+                                                  (eopl:error 'append-vector
+                                                              "El valor ~s no corresponde al tipo del vector" val)))))
+                                (eopl:error 'append-vector
+                                            "El primer argumento debe ser un vector"))))
+      (delete-val-vector-prim ()
+                              (let ((vec (car args))
+                                    (pos (cadr args)))
+                                (if (vector-val? vec)
+                                    (cases vector-val vec
+                                      (a-vector (state)
+                                                (let ((elements (vector-ref state 1)))
+                                                  (if (and (integer? pos) (exact? pos)
+                                                           (>= pos 0)
+                                                           (< pos (length elements)))
+                                                      (begin
+                                                        (vector-set!
+                                                         state 1
+                                                         (delete-list-position elements pos))
+                                                        vec)
+                                                      (eopl:error 'delete-val-vector
+                                                                  "La posicion ~s esta fuera de rango" pos)))))
+                                    (eopl:error 'delete-val-vector
+                                                "El primer argumento debe ser un vector"))))
+      (insert-val-vector-prim ()
+                              (let ((vec (car args))
+                                    (pos (cadr args))
+                                    (val (caddr args)))
+                                (if (vector-val? vec)
+                                    (cases vector-val vec
+                                      (a-vector (state)
+                                                (let ((elements (vector-ref state 1))
+                                                      (elem-texp (vector-ref state 0)))
+                                                  (if (and (integer? pos) (exact? pos)
+                                                           (>= pos 0)
+                                                           (<= pos (length elements)))
+                                                      (if (or (eqv? elem-texp 'void)
+                                                              (type-matches? elem-texp val))
+                                                          (begin
+                                                            (vector-set!
+                                                             state 1
+                                                             (insert-list-position elements pos val))
+                                                            vec)
+                                                          (eopl:error 'insert-val-vector
+                                                                      "El valor ~s no corresponde al tipo del vector" val))
+                                                      (eopl:error 'insert-val-vector
+                                                                  "La posicion ~s esta fuera de rango" pos)))))
+                                    (eopl:error 'insert-val-vector
+                                                "El primer argumento debe ser un vector"))))
       ; -- cadenas y diccionarios
-
+      (longitud-prim ()
+                     (let ((txt (car args)))
+                       (if (string? txt)
+                           (string-length txt)
+                           (eopl:error 'longitud
+                                       "longitud requiere una cadena, recibió ~s" txt))))
+      (concatenar-prim ()
+                       (let ((txt1 (car args))
+                             (txt2 (cadr args)))
+                         (if (and (string? txt1) (string? txt2))
+                             (string-append txt1 txt2)
+                             (eopl:error 'concatenar
+                                         "concatenar requiere dos cadenas"))))
       (else (eopl:error 'apply-primitive
                         "La primitiva ~s aun no esta implementada" prim)))))
 
@@ -789,6 +957,38 @@
                 (+ list-index-r 1)
                 #f))))))
  
+; make-list-of-length: valor <numero> -> lista
+(define make-list-of-length
+  (lambda (val n)
+    (if (= n 0)
+        '()
+        (cons val (make-list-of-length val (- n 1))))))
+
+; replace-list-position: reemplaza un elemento 
+(define replace-list-position
+  (lambda (lst pos val)
+    (if (= pos 0)
+        (cons val (cdr lst))
+        (cons (car lst)
+              (replace-list-position (cdr lst) (- pos 1) val)))))
+
+; delete-list-position: elimina un elemento y desplaza los siguientes
+(define delete-list-position
+  (lambda (lst pos)
+    (if (= pos 0)
+        (cdr lst)
+        (cons (car lst)
+              (delete-list-position (cdr lst) (- pos 1))))))
+
+; insert-list-position: inserta un elemento y desplaza los siguientes
+(define insert-list-position
+  (lambda (lst pos val)
+    (if (= pos 0)
+        (cons val lst)
+        (cons (car lst)
+              (insert-list-position (cdr lst) (- pos 1) val)))))
+
+
 ;******************************************************************************************
 
 
@@ -972,4 +1172,3 @@ PROGRAM {
 }")
 
 ;(interpretador)
-
