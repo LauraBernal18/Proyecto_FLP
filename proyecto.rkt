@@ -400,6 +400,13 @@
                     (begin
                       (eval-declarations! decls env-local)
                       (eval-body bdy env-local))))
+      (while-exp (test-bdy bdy)
+                 (let loop ()
+                   (if (true-value? (eval-expression test-bdy env))
+                       (begin
+                         (eval-body bdy env)
+                         (loop))
+                       1)))
       ; -- listas y vectores --
       (list-exp (exprs) (eval-rands exprs env))
       (empty-list-exp () '())
