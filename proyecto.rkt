@@ -393,6 +393,7 @@
       ; -- listas y vectores --
       (list-exp (exprs) (eval-rands exprs env))
       (empty-list-exp () '())
+      (vector-exp (exprs) (a-vector (vector (void-type-exp) (eval-rands exprs env))))
 
       ; -- control y diccionarios
 
@@ -478,6 +479,26 @@
                               (eopl:error 'ref-list "La posicion ~s esta fuera de rango" pos))))
       (make-list-prim () (cons (car args) (cadr args)))
       (append-prim () (append (car args) (cadr args)))
+      (vector?-prim () (vector-val? (car args)))
+      (ref-vector-prim () (let ((elems (vector-val-elements (car args)))
+                                (pos (cadr args)))
+                            (if (posicion-valida? pos elems)
+                                (list-ref elems pos)
+                                (eopl:error 'ref-vector "La posicion ~s esta fuera de rango" pos))))
+      (set-vector-prim () (let ((vect (car args)) (pos (cadr args)) (val (caddr args)))
+                            (if (posicion-valida? pos (vector-val-elements vect))
+                                (begin
+                                  (revisar-tipo-vector vect val)
+                                  (cambiar-elementos! vect (reemplazar-en (vector-val-elements vect) pos val))
+                                  1)
+                                (eopl:error 'set-vector "La posicion ~s esta fuera de rango" pos))))
+      (append-vector-prim () (let ((vect (car args)) (val (cadr args)))
+                               (begin
+                                 (revisar-tipo-vector vect val)
+                                 (cambiar-elementos! vect (append (vector-val-elements vect) (list val)))
+                                 1)))
+                       
+      
 
       ; -- cadenas y diccionarios
 
@@ -676,6 +697,38 @@
                     (else #t))))))
  
 ;*******************************************************************************************
+;Auxiliares para vectores
+
+;posicion-valida?: <int> <list> -> bool
+(define posicion-valida?
+  (lambda (pos lst)
+    (and (>= pos 0) (< pos (length lst)))))
+
+;cambiar-elementos!: <vector-val> <list> -> void
+;guarda la lista nueva en la posicion 1 de la caja
+(define cambiar-elementos!
+  (lambda (vect nuevos)
+    (cases vector-val vect
+      (a-vector (state) (vector-set! state 1 nuevos)))))
+
+;revisar-tipo-vector: <vector-val> <valor> -> #t / error
+;revisa que el valor sea del tipo guardado en la posicion 0
+(define revisar-tipo-vector
+  (lambda (vect val)
+    (cases vector-val vect
+      (a-vector (state)
+                (if (type-matches? (vector-ref state 0) val)
+                    #t
+                    (eopl:error 'vector "El valor ~s no corresponde al tipo ~s del vector" val (type->string (vector-ref state 0))))))))
+
+;reemplazar-en: <list> <int> <valor> -> list
+;lista nueva con val en la posicion pos
+(define reemplazar-en
+  (lambda (lst pos val)
+    (if (= pos 0)
+        (cons val (cdr lst))
+        (cons (car lst) (reemplazar-en (cdr lst) (- pos 1) val)))))
+                                                                                                             
 
 ;Ambientes
  
