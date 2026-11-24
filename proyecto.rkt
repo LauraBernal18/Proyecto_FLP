@@ -442,6 +442,10 @@
                   (let ((elements (eval-rands exprs env)))
                     (a-vector (vector 'void elements))))
       ; -- control y diccionarios
+      (dict-exp (keys vals)
+                (a-dict (vector (void-type-exp)
+                                (void-type-exp)
+                                (map cons (eval-rands keys env) (eval-rands vals env)))))
 
 
       (else (eopl:error 'eval-expression
@@ -649,6 +653,29 @@
                              (string-append txt1 txt2)
                              (eopl:error 'concatenar
                                          "concatenar requiere dos cadenas"))))
+      (create-dict-prim () (a-dict (vector (void-type-exp) (void-type-exp) '())))
+      (dict?-prim () (dict-val? (car args)))
+      (ref-dict-prim () (let ((par (buscar-par (dict-val-pairs (car args)) (cadr args))))
+                          (if par
+                              (cdr par)
+                              (eopl:error 'ref-dict "La clave ~s no existe" (cadr args)))))
+      (keys-dict-prim () (map car (dict-val-pairs (car args))))
+      (values-dict-prim () (map cdr (dict-val-pairs (car args))))
+      (set-dict-prim () (let ((dic (car args)) (clave (cadr args)) (val (caddr args)))
+                          (begin
+                            (revisar-tipos-dict dic clave val)
+                            (if (buscar-par (dict-val-pairs dic) clave)
+                                (cambiar-pares! dic (reemplazar-valor (dict-val-pairs dic) clave val))
+                                (cambiar-pares! dic (append (dict-val-pairs dic) (list (cons clave val)))))
+                            1)))
+      (append-dict-prim () (let ((dic (car args)) (clave (cadr args)) (val (caddr args)))
+                             (if (buscar-par (dict-val-pairs dic) clave)
+                                 (eopl:error 'append-dict "La clave ~s ya existe" clave)
+                                 (begin
+                                   (revisar-tipos-dict dic clave val)
+                                   (cambiar-pares! dic (append (dict-val-pairs dic) (list (cons clave val))))
+                                   1))))            
+                                               
       (else (eopl:error 'apply-primitive
                         "La primitiva ~s aun no esta implementada" prim)))))
 
@@ -988,6 +1015,45 @@
         (cons (car lst)
               (insert-list-position (cdr lst) (- pos 1) val)))))
 
+;Auxiliares para diccionarios
+
+;buscar-par: <list-of pares> <claves> -> par o #f
+(define buscar-par
+  (lambda (pares clave)
+    (cond
+      ((null? pares) #f)
+      ((equal-values? (car (car pares)) clave) (car pares))
+      (else (buscar-par (cdr pares) clave)))))
+
+;reemplazar-valor: <list-of pares> <clave> <valor> -> list-of pares
+;lista nueva con el valor de la clave cambiado
+(define reemplazar-valor
+  (lambda (pares clave val)
+    (if (equal-values? (car (car pares)) clave)
+        (cons (cons clave val) (cdr pares))
+        (cons (car pares) (reemplazar-valor (cdr pares) clave val)))))
+
+;cambiar-pares!: <dict-val> <list-of pares> -> void
+;guarda la lista nueva en la posicion 2 de la caja
+(define cambiar-pares!
+  (lambda (dic nuevos)
+    (cases dict-val dic
+      (a-dict (state) (vector-set! state 2 nuevos)))))
+
+;revisar-tipos-dict: <dict-val> <clave> <valor> -> #t / error
+;revisa la clave con el tipo de la posicion 0 y el valor con el de la posicion 1
+(define revisar-tipos-dict
+  (lambda (dic clave val)
+    (cases dict-val dic
+      (a-dict (state)
+              (cond
+                ((not (type-matches? (vector-ref state 0) clave))
+                 (eopl:error 'dict "La clave ~s no corresponde al tipo del diccionario" clave))
+                ((not (type-matches? (vector-ref state 1) val))
+                 (eopl:error 'dict "El valor ~s no corresponde al tipo del diccionario" val))
+                (else #t))))))
+        
+               
 
 ;******************************************************************************************
 
