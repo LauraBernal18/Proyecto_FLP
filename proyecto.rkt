@@ -446,6 +446,9 @@
                 (a-dict (vector (void-type-exp)
                                 (void-type-exp)
                                 (map cons (eval-rands keys env) (eval-rands vals env)))))
+      (switch-exp (exp casos cuerpos-casos cuerpo-default)
+                  (eval-switch (eval-expression exp env)
+                               casos cuerpos-casos cuerpo-default env))
 
 
       (else (eopl:error 'eval-expression
@@ -1052,6 +1055,18 @@
                 ((not (type-matches? (vector-ref state 1) val))
                  (eopl:error 'dict "El valor ~s no corresponde al tipo del diccionario" val))
                 (else #t))))))
+
+;Auxiliares para switch
+
+;eval-switch: <valor> <list-of expression> <list-of body> <body> <environment> -> valor
+;evalua el cuerpo del primer case igual al valor; si ninguno coincide, el del default
+(define eval-switch
+  (lambda (valor casos cuerpos-casos cuerpo-default ambiente)
+    (cond
+      ((null? casos) (eval-body cuerpo-default ambiente))
+      ((equal-values? valor (eval-expression (car casos) ambiente))
+       (eval-body (car cuerpos-casos) ambiente))
+      (else (eval-switch valor (cdr casos) (cdr cuerpos-casos) cuerpo-default ambiente)))))
         
                
 
@@ -1236,5 +1251,23 @@ PROGRAM {
 PROGRAM {
   proc main() { return solve(x); }
 }")
+
+;Pruebas de evaluacion: switch e instancias SAT
+
+; switch (ejemplo del enunciado)
+(eval-program (scan&parse "GLOBALS { string color = \"amarillo\"; }
+PROGRAM {
+  proc main() {
+    return switch color {
+      case \"rojo\" : { \"Detente\"; }
+      case \"amarillo\" : { \"Precaucion\"; }
+      case \"verde\" : { \"Sigue\"; }
+      default : { \"Color desconocido\"; }
+    };
+  }
+}"))   ; "Precaucion"
+(eval-program (scan&parse "GLOBALS { string color = \"azul\"; } PROGRAM { proc main() { return switch color { case \"rojo\" : { \"Detente\"; } default : { \"Color desconocido\"; } }; } }"))   ; "Color desconocido"
+(eval-program (scan&parse "GLOBALS { float x = 2.0; } PROGRAM { proc main() { return switch x { case 1 : { \"uno\"; } case 2 : { \"dos\"; } default : { \"otro\"; } }; } }"))   ; "dos"
+(eval-program (scan&parse "GLOBALS { int n = 1; } PROGRAM { proc main() { return switch n { case 1 : { \"primero\"; } case 1 : { \"segundo\"; } default : { \"otro\"; } }; } }"))   ; "primero"
 
 ;(interpretador)
