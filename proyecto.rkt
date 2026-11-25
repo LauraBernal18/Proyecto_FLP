@@ -449,6 +449,10 @@
       (switch-exp (exp casos cuerpos-casos cuerpo-default)
                   (eval-switch (eval-expression exp env)
                                casos cuerpos-casos cuerpo-default env))
+      ; -- instancias SAT
+      (sat-exp (num-vars clausula clausulas)
+               (crear-instancia-sat num-vars
+                                    (map clausula->lista (cons clausula clausulas))))
 
 
       (else (eopl:error 'eval-expression
@@ -1067,6 +1071,48 @@
       ((equal-values? valor (eval-expression (car casos) ambiente))
        (eval-body (car cuerpos-casos) ambiente))
       (else (eval-switch valor (cdr casos) (cdr cuerpos-casos) cuerpo-default ambiente)))))
+
+;Auxiliares para instancias SAT
+
+;clausula->lista: <sat-clause> -> <list-of int>
+;une el primer literal con los demas: (a-sat-clause 1 (2)) -> (1 2)
+(define clausula->lista
+  (lambda (clausula)
+    (cases sat-clause clausula
+      (a-sat-clause (literal literales) (cons literal literales)))))
+
+;crear-instancia-sat: <number> <list-of <list-of number>> -> sat-val
+;valida que el numero de variables sea un entero positivo y los literales, y crea la instancia
+(define crear-instancia-sat
+  (lambda (num-vars clausulas)
+    (if (not (and (integer? num-vars) (exact? num-vars) (> num-vars 0)))
+        (eopl:error 'sat-exp "El numero de variables debe ser un entero positivo: ~s" num-vars)
+        (begin
+          (validar-clausulas num-vars clausulas)
+          (a-sat num-vars clausulas)))))
+
+;validar-clausulas: <int> <list-of <list-of number>> -> #t / error
+(define validar-clausulas
+  (lambda (num-vars clausulas)
+    (if (null? clausulas)
+        #t
+        (begin
+          (for-each (lambda (literal) (validar-literal num-vars literal)) (car clausulas))
+          (validar-clausulas num-vars (cdr clausulas))))))
+
+;validar-literal: <int> <number> -> #t / error
+;un literal debe ser entero, distinto de 0 y con indice entre 1 y num-vars
+(define validar-literal
+  (lambda (num-vars literal)
+    (cond
+      ((not (and (integer? literal) (exact? literal)))
+       (eopl:error 'sat-exp "Los literales deben ser enteros: ~s" literal))
+      ((= literal 0)
+       (eopl:error 'sat-exp "El literal 0 no es valido (las variables van de 1 a ~s)" num-vars))
+      ((> (abs literal) num-vars)
+       (eopl:error 'sat-exp "La variable ~s esta fuera de rango: debe estar entre 1 y ~s"
+                   (abs literal) num-vars))
+      (else #t))))
         
                
 
@@ -1269,5 +1315,15 @@ PROGRAM {
 (eval-program (scan&parse "GLOBALS { string color = \"azul\"; } PROGRAM { proc main() { return switch color { case \"rojo\" : { \"Detente\"; } default : { \"Color desconocido\"; } }; } }"))   ; "Color desconocido"
 (eval-program (scan&parse "GLOBALS { float x = 2.0; } PROGRAM { proc main() { return switch x { case 1 : { \"uno\"; } case 2 : { \"dos\"; } default : { \"otro\"; } }; } }"))   ; "dos"
 (eval-program (scan&parse "GLOBALS { int n = 1; } PROGRAM { proc main() { return switch n { case 1 : { \"primero\"; } case 1 : { \"segundo\"; } default : { \"otro\"; } }; } }"))   ; "primero"
+
+; instancias SAT
+(eval-program (scan&parse "GLOBALS { sat x = FNC 2 ((1 or 2) and (-1) and (-2)); } PROGRAM { proc main() { return x; } }"))   ; #(struct:a-sat 2 ((1 2) (-1) (-2)))
+; errores (quitar el ; para probarlos):
+;(eval-program (scan&parse "GLOBALS { sat x = FNC 0 ((1)); } PROGRAM { proc main() { return x; } }"))   ; El numero de variables debe ser un entero positivo: 0
+;(eval-program (scan&parse "GLOBALS { sat x = FNC 2.5 ((1)); } PROGRAM { proc main() { return x; } }"))   ; El numero de variables debe ser un entero positivo: 2.5
+;(eval-program (scan&parse "GLOBALS { sat x = FNC 2 ((1 or 0)); } PROGRAM { proc main() { return x; } }"))   ; El literal 0 no es valido (las variables van de 1 a 2)
+;(eval-program (scan&parse "GLOBALS { sat x = FNC 2 ((1 or -3)); } PROGRAM { proc main() { return x; } }"))   ; La variable 3 esta fuera de rango: debe estar entre 1 y 2
+;(eval-program (scan&parse "GLOBALS { sat x = FNC 2 ((1.5)); } PROGRAM { proc main() { return x; } }"))   ; Los literales deben ser enteros: 1.5
+;(eval-program (scan&parse "GLOBALS { sat x = 5; } PROGRAM { proc main() { return x; } }"))   ; El valor 5 no corresponde al tipo "sat" de la variable x
 
 ;(interpretador)
