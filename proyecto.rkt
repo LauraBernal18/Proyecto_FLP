@@ -689,12 +689,13 @@
                         "La primitiva ~s aun no esta implementada" prim)))))
 
 ;show-value: <valor> -> <valor>
-; para imprimir True y False en vez de #t y #f
+; para imprimir True y False en vez de #t y #f, tambien dentro de listas
 (define show-value
   (lambda (v)
     (cond
       ((eqv? v #t) "True")
       ((eqv? v #f) "False")
+      ((list? v) (map show-value v))
       (else v))))
 
 ;apply-bin-primitive: <bin-primitive> <valor> <valor> -> valor
@@ -1413,5 +1414,9 @@ PROGRAM {
 (eval-program (scan&parse "GLOBALS { proc resolver = lambda (sat f) { return solve(f); }; } PROGRAM { proc main() { return resolver(FNC 3 ((1 or 2) and (-1) and (-2 or 3))); } }"))   ; (satisfactible (#f #t #t))
 (eval-program (scan&parse "GLOBALS { sat y = FNC 3 ((1) and (-2)); } PROGRAM { proc main() { return solve(y); } }"))   ; (satisfactible (#t #f #t))
 ;(eval-program (scan&parse "GLOBALS { } PROGRAM { proc main() { return solve(5); } }"))   ; solve debe recibir una instancia SAT y recibio: 5
+
+; print muestra True y False dentro de listas
+(eval-program (scan&parse "GLOBALS { sat x = FNC 4 ((1 or -2 or 3 or 4) and (-2 or 3) and (-1 or -2 or -3) and (3 or 4) and (2)); } PROGRAM { proc main() { return print(solve(x)); } }"))   ; imprime (satisfactible (False True True True))
+(eval-program (scan&parse "GLOBALS { list<bool> l = list(True, False); } PROGRAM { proc main() { return print(l); } }"))   ; imprime (True False)
 
 ;(interpretador)
