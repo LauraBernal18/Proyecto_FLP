@@ -682,6 +682,8 @@
                                    (revisar-tipos-dict dic clave val)
                                    (cambiar-pares! dic (append (dict-val-pairs dic) (list (cons clave val))))
                                    1))))            
+      ; -- instancias SAT
+      (solve-prim () (resolver-sat (car args)))
                                                
       (else (eopl:error 'apply-primitive
                         "La primitiva ~s aun no esta implementada" prim)))))
@@ -1113,6 +1115,63 @@
        (eopl:error 'sat-exp "La variable ~s esta fuera de rango: debe estar entre 1 y ~s"
                    (abs literal) num-vars))
       (else #t))))
+
+;resolver-sat: <valor> -> list
+;primitiva solve: retorna (satisfactible (asignacion)) o (insatisfactible ())
+(define resolver-sat
+  (lambda (instancia)
+    (if (sat-val? instancia)
+        (cases sat-val instancia
+          (a-sat (num-vars clausulas)
+                 (let ((asignacion (buscar-asignacion num-vars clausulas '())))
+                   (if asignacion
+                       (list 'satisfactible asignacion)
+                       (list 'insatisfactible '())))))
+        (eopl:error 'solve "solve debe recibir una instancia SAT y recibio: ~s" instancia))))
+
+;buscar-asignacion: <int> <list-of <list-of int>> <list-of bool> -> <list-of bool> o #f
+;busqueda exhaustiva: prueba cada variable con True y luego con False, y se detiene
+;en la primera asignacion completa que cumple la formula (#f si no hay ninguna)
+(define buscar-asignacion
+  (lambda (faltan clausulas asignacion)
+    (if (= faltan 0)
+        (if (formula-verdadera? clausulas asignacion)
+            asignacion
+            #f)
+        (let ((con-true (buscar-asignacion (- faltan 1) clausulas
+                                           (append asignacion (list #t)))))
+          (if con-true
+              con-true
+              (buscar-asignacion (- faltan 1) clausulas
+                                 (append asignacion (list #f))))))))
+
+;formula-verdadera?: <list-of <list-of int>> <list-of bool> -> bool
+;la formula es verdadera si todas sus clausulas lo son (and)
+(define formula-verdadera?
+  (lambda (clausulas asignacion)
+    (cond
+      ((null? clausulas) #t)
+      ((clausula-verdadera? (car clausulas) asignacion)
+       (formula-verdadera? (cdr clausulas) asignacion))
+      (else #f))))
+
+;clausula-verdadera?: <list-of int> <list-of bool> -> bool
+;la clausula es verdadera si alguno de sus literales lo es (or)
+(define clausula-verdadera?
+  (lambda (literales asignacion)
+    (cond
+      ((null? literales) #f)
+      ((literal-verdadero? (car literales) asignacion) #t)
+      (else (clausula-verdadera? (cdr literales) asignacion)))))
+
+;literal-verdadero?: <int> <list-of bool> -> bool
+;el literal k vale lo que la variable k (posicion k-1) y el literal -k su negacion
+(define literal-verdadero?
+  (lambda (literal asignacion)
+    (let ((valor (list-ref asignacion (- (abs literal) 1))))
+      (if (> literal 0)
+          valor
+          (not valor)))))
         
                
 
@@ -1325,5 +1384,34 @@ PROGRAM {
 ;(eval-program (scan&parse "GLOBALS { sat x = FNC 2 ((1 or -3)); } PROGRAM { proc main() { return x; } }"))   ; La variable 3 esta fuera de rango: debe estar entre 1 y 2
 ;(eval-program (scan&parse "GLOBALS { sat x = FNC 2 ((1.5)); } PROGRAM { proc main() { return x; } }"))   ; Los literales deben ser enteros: 1.5
 ;(eval-program (scan&parse "GLOBALS { sat x = 5; } PROGRAM { proc main() { return x; } }"))   ; El valor 5 no corresponde al tipo "sat" de la variable x
+
+; solve: ejemplo 1 del enunciado
+(eval-program (scan&parse "GLOBALS {
+  sat x = FNC 4 (
+    (1 or -2 or 3 or 4) and
+    (-2 or 3) and
+    (-1 or -2 or -3) and
+    (3 or 4) and
+    (2)
+  );
+}
+PROGRAM {
+  proc main() { return solve(x); }
+}"))   ; (satisfactible (#f #t #t #t))
+; solve: ejemplo 2 del enunciado
+(eval-program (scan&parse "GLOBALS {
+  sat x = FNC 2 (
+    (1 or 2) and
+    (-1) and
+    (-2)
+  );
+}
+PROGRAM {
+  proc main() { return solve(x); }
+}"))   ; (insatisfactible ())
+(eval-program (scan&parse "GLOBALS { } PROGRAM { proc main() { return solve(FNC 1 ((-1))); } }"))   ; (satisfactible (#f))
+(eval-program (scan&parse "GLOBALS { proc resolver = lambda (sat f) { return solve(f); }; } PROGRAM { proc main() { return resolver(FNC 3 ((1 or 2) and (-1) and (-2 or 3))); } }"))   ; (satisfactible (#f #t #t))
+(eval-program (scan&parse "GLOBALS { sat y = FNC 3 ((1) and (-2)); } PROGRAM { proc main() { return solve(y); } }"))   ; (satisfactible (#t #f #t))
+;(eval-program (scan&parse "GLOBALS { } PROGRAM { proc main() { return solve(5); } }"))   ; solve debe recibir una instancia SAT y recibio: 5
 
 ;(interpretador)
