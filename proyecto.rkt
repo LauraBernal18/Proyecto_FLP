@@ -446,6 +446,13 @@
                 (a-dict (vector (void-type-exp)
                                 (void-type-exp)
                                 (map cons (eval-rands keys env) (eval-rands vals env)))))
+      (switch-exp (exp casos cuerpos-casos cuerpo-default)
+                  (eval-switch (eval-expression exp env)
+                               casos cuerpos-casos cuerpo-default env))
+      ; -- instancias SAT
+      (sat-exp (num-vars clausula clausulas)
+               (crear-instancia-sat num-vars
+                                    (map clausula->lista (cons clausula clausulas))))
 
 
       (else (eopl:error 'eval-expression
@@ -675,17 +682,20 @@
                                    (revisar-tipos-dict dic clave val)
                                    (cambiar-pares! dic (append (dict-val-pairs dic) (list (cons clave val))))
                                    1))))            
+      ; -- instancias SAT
+      (solve-prim () (resolver-sat (car args)))
                                                
       (else (eopl:error 'apply-primitive
                         "La primitiva ~s aun no esta implementada" prim)))))
 
 ;show-value: <valor> -> <valor>
-; para imprimir True y False en vez de #t y #f
+; para imprimir True y False en vez de #t y #f, tambien dentro de listas
 (define show-value
   (lambda (v)
     (cond
       ((eqv? v #t) "True")
       ((eqv? v #f) "False")
+      ((list? v) (map show-value v))
       (else v))))
 
 ;apply-bin-primitive: <bin-primitive> <valor> <valor> -> valor
@@ -1052,6 +1062,117 @@
                 ((not (type-matches? (vector-ref state 1) val))
                  (eopl:error 'dict "El valor ~s no corresponde al tipo del diccionario" val))
                 (else #t))))))
+
+;Auxiliares para switch
+
+;eval-switch: <valor> <list-of expression> <list-of body> <body> <environment> -> valor
+;evalua el cuerpo del primer case igual al valor; si ninguno coincide, el del default
+(define eval-switch
+  (lambda (valor casos cuerpos-casos cuerpo-default ambiente)
+    (cond
+      ((null? casos) (eval-body cuerpo-default ambiente))
+      ((equal-values? valor (eval-expression (car casos) ambiente))
+       (eval-body (car cuerpos-casos) ambiente))
+      (else (eval-switch valor (cdr casos) (cdr cuerpos-casos) cuerpo-default ambiente)))))
+
+;Auxiliares para instancias SAT
+
+;clausula->lista: <sat-clause> -> <list-of int>
+;une el primer literal con los demas: (a-sat-clause 1 (2)) -> (1 2)
+(define clausula->lista
+  (lambda (clausula)
+    (cases sat-clause clausula
+      (a-sat-clause (literal literales) (cons literal literales)))))
+
+;crear-instancia-sat: <number> <list-of <list-of number>> -> sat-val
+;valida que el numero de variables sea un entero positivo y los literales, y crea la instancia
+(define crear-instancia-sat
+  (lambda (num-vars clausulas)
+    (if (not (and (integer? num-vars) (exact? num-vars) (> num-vars 0)))
+        (eopl:error 'sat-exp "El numero de variables debe ser un entero positivo: ~s" num-vars)
+        (begin
+          (validar-clausulas num-vars clausulas)
+          (a-sat num-vars clausulas)))))
+
+;validar-clausulas: <int> <list-of <list-of number>> -> #t / error
+(define validar-clausulas
+  (lambda (num-vars clausulas)
+    (if (null? clausulas)
+        #t
+        (begin
+          (for-each (lambda (literal) (validar-literal num-vars literal)) (car clausulas))
+          (validar-clausulas num-vars (cdr clausulas))))))
+
+;validar-literal: <int> <number> -> #t / error
+;un literal debe ser entero, distinto de 0 y con indice entre 1 y num-vars
+(define validar-literal
+  (lambda (num-vars literal)
+    (cond
+      ((not (and (integer? literal) (exact? literal)))
+       (eopl:error 'sat-exp "Los literales deben ser enteros: ~s" literal))
+      ((= literal 0)
+       (eopl:error 'sat-exp "El literal 0 no es valido (las variables van de 1 a ~s)" num-vars))
+      ((> (abs literal) num-vars)
+       (eopl:error 'sat-exp "La variable ~s esta fuera de rango: debe estar entre 1 y ~s"
+                   (abs literal) num-vars))
+      (else #t))))
+
+;resolver-sat: <valor> -> list
+;primitiva solve: retorna (satisfactible (asignacion)) o (insatisfactible ())
+(define resolver-sat
+  (lambda (instancia)
+    (if (sat-val? instancia)
+        (cases sat-val instancia
+          (a-sat (num-vars clausulas)
+                 (let ((asignacion (buscar-asignacion num-vars clausulas '())))
+                   (if asignacion
+                       (list 'satisfactible asignacion)
+                       (list 'insatisfactible '())))))
+        (eopl:error 'solve "solve debe recibir una instancia SAT y recibio: ~s" instancia))))
+
+;buscar-asignacion: <int> <list-of <list-of int>> <list-of bool> -> <list-of bool> o #f
+;busqueda exhaustiva: prueba cada variable con True y luego con False, y se detiene
+;en la primera asignacion completa que cumple la formula (#f si no hay ninguna)
+(define buscar-asignacion
+  (lambda (faltan clausulas asignacion)
+    (if (= faltan 0)
+        (if (formula-verdadera? clausulas asignacion)
+            asignacion
+            #f)
+        (let ((con-true (buscar-asignacion (- faltan 1) clausulas
+                                           (append asignacion (list #t)))))
+          (if con-true
+              con-true
+              (buscar-asignacion (- faltan 1) clausulas
+                                 (append asignacion (list #f))))))))
+
+;formula-verdadera?: <list-of <list-of int>> <list-of bool> -> bool
+;la formula es verdadera si todas sus clausulas lo son (and)
+(define formula-verdadera?
+  (lambda (clausulas asignacion)
+    (cond
+      ((null? clausulas) #t)
+      ((clausula-verdadera? (car clausulas) asignacion)
+       (formula-verdadera? (cdr clausulas) asignacion))
+      (else #f))))
+
+;clausula-verdadera?: <list-of int> <list-of bool> -> bool
+;la clausula es verdadera si alguno de sus literales lo es (or)
+(define clausula-verdadera?
+  (lambda (literales asignacion)
+    (cond
+      ((null? literales) #f)
+      ((literal-verdadero? (car literales) asignacion) #t)
+      (else (clausula-verdadera? (cdr literales) asignacion)))))
+
+;literal-verdadero?: <int> <list-of bool> -> bool
+;el literal k vale lo que la variable k (posicion k-1) y el literal -k su negacion
+(define literal-verdadero?
+  (lambda (literal asignacion)
+    (let ((valor (list-ref asignacion (- (abs literal) 1))))
+      (if (> literal 0)
+          valor
+          (not valor)))))
         
                
 
@@ -1236,5 +1357,66 @@ PROGRAM {
 PROGRAM {
   proc main() { return solve(x); }
 }")
+
+;Pruebas de evaluacion: switch e instancias SAT
+
+; switch (ejemplo del enunciado)
+(eval-program (scan&parse "GLOBALS { string color = \"amarillo\"; }
+PROGRAM {
+  proc main() {
+    return switch color {
+      case \"rojo\" : { \"Detente\"; }
+      case \"amarillo\" : { \"Precaucion\"; }
+      case \"verde\" : { \"Sigue\"; }
+      default : { \"Color desconocido\"; }
+    };
+  }
+}"))   ; "Precaucion"
+(eval-program (scan&parse "GLOBALS { string color = \"azul\"; } PROGRAM { proc main() { return switch color { case \"rojo\" : { \"Detente\"; } default : { \"Color desconocido\"; } }; } }"))   ; "Color desconocido"
+(eval-program (scan&parse "GLOBALS { float x = 2.0; } PROGRAM { proc main() { return switch x { case 1 : { \"uno\"; } case 2 : { \"dos\"; } default : { \"otro\"; } }; } }"))   ; "dos"
+(eval-program (scan&parse "GLOBALS { int n = 1; } PROGRAM { proc main() { return switch n { case 1 : { \"primero\"; } case 1 : { \"segundo\"; } default : { \"otro\"; } }; } }"))   ; "primero"
+
+; instancias SAT
+(eval-program (scan&parse "GLOBALS { sat x = FNC 2 ((1 or 2) and (-1) and (-2)); } PROGRAM { proc main() { return x; } }"))   ; #(struct:a-sat 2 ((1 2) (-1) (-2)))
+; errores (quitar el ; para probarlos):
+;(eval-program (scan&parse "GLOBALS { sat x = FNC 0 ((1)); } PROGRAM { proc main() { return x; } }"))   ; El numero de variables debe ser un entero positivo: 0
+;(eval-program (scan&parse "GLOBALS { sat x = FNC 2.5 ((1)); } PROGRAM { proc main() { return x; } }"))   ; El numero de variables debe ser un entero positivo: 2.5
+;(eval-program (scan&parse "GLOBALS { sat x = FNC 2 ((1 or 0)); } PROGRAM { proc main() { return x; } }"))   ; El literal 0 no es valido (las variables van de 1 a 2)
+;(eval-program (scan&parse "GLOBALS { sat x = FNC 2 ((1 or -3)); } PROGRAM { proc main() { return x; } }"))   ; La variable 3 esta fuera de rango: debe estar entre 1 y 2
+;(eval-program (scan&parse "GLOBALS { sat x = FNC 2 ((1.5)); } PROGRAM { proc main() { return x; } }"))   ; Los literales deben ser enteros: 1.5
+;(eval-program (scan&parse "GLOBALS { sat x = 5; } PROGRAM { proc main() { return x; } }"))   ; El valor 5 no corresponde al tipo "sat" de la variable x
+
+; solve: ejemplo 1 del enunciado
+(eval-program (scan&parse "GLOBALS {
+  sat x = FNC 4 (
+    (1 or -2 or 3 or 4) and
+    (-2 or 3) and
+    (-1 or -2 or -3) and
+    (3 or 4) and
+    (2)
+  );
+}
+PROGRAM {
+  proc main() { return solve(x); }
+}"))   ; (satisfactible (#f #t #t #t))
+; solve: ejemplo 2 del enunciado
+(eval-program (scan&parse "GLOBALS {
+  sat x = FNC 2 (
+    (1 or 2) and
+    (-1) and
+    (-2)
+  );
+}
+PROGRAM {
+  proc main() { return solve(x); }
+}"))   ; (insatisfactible ())
+(eval-program (scan&parse "GLOBALS { } PROGRAM { proc main() { return solve(FNC 1 ((-1))); } }"))   ; (satisfactible (#f))
+(eval-program (scan&parse "GLOBALS { proc resolver = lambda (sat f) { return solve(f); }; } PROGRAM { proc main() { return resolver(FNC 3 ((1 or 2) and (-1) and (-2 or 3))); } }"))   ; (satisfactible (#f #t #t))
+(eval-program (scan&parse "GLOBALS { sat y = FNC 3 ((1) and (-2)); } PROGRAM { proc main() { return solve(y); } }"))   ; (satisfactible (#t #f #t))
+;(eval-program (scan&parse "GLOBALS { } PROGRAM { proc main() { return solve(5); } }"))   ; solve debe recibir una instancia SAT y recibio: 5
+
+; print muestra True y False dentro de listas
+(eval-program (scan&parse "GLOBALS { sat x = FNC 4 ((1 or -2 or 3 or 4) and (-2 or 3) and (-1 or -2 or -3) and (3 or 4) and (2)); } PROGRAM { proc main() { return print(solve(x)); } }"))   ; imprime (satisfactible (False True True True))
+(eval-program (scan&parse "GLOBALS { list<bool> l = list(True, False); } PROGRAM { proc main() { return print(l); } }"))   ; imprime (True False)
 
 ;(interpretador)
